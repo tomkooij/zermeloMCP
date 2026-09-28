@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zermelo-mcp"
+version = "0.1.0"
+description = "MCP (Model Context Protocol) server for reading and writing data in the Zermelo timetable API."
+readme = "README.md"
+authors = [
+    { name = "Zermelo MCP Contributor" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2.0.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+zermelo-mcp = "zermelo_mcp.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zermelo_mcp"]
