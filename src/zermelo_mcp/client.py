@@ -27,10 +27,22 @@ class ZermeloClient:
         api_version: Optional[str] = None,
         timeout: float = 30.0,
     ):
-        self.school = school or os.getenv("ZERMELO_SCHOOL")
-        self.token = token or os.getenv("ZERMELO_TOKEN")
-        self.api_version = api_version or os.getenv("ZERMELO_API_VERSION", "v3")
+        self._school = school
+        self._token = token
+        self._api_version = api_version
         self.timeout = timeout
+
+    @property
+    def school(self) -> Optional[str]:
+        return self._school or os.getenv("ZERMELO_SCHOOL")
+
+    @property
+    def token(self) -> Optional[str]:
+        return self._token or os.getenv("ZERMELO_TOKEN")
+
+    @property
+    def api_version(self) -> str:
+        return self._api_version or os.getenv("ZERMELO_API_VERSION", "v3")
 
     def get_base_url(self, custom_school: Optional[str] = None, custom_api_version: Optional[str] = None) -> str:
         """Construct the base API URL for the specified school and API version."""
@@ -43,10 +55,11 @@ class ZermeloClient:
         school = school.strip().lower()
         if school.startswith("http://") or school.startswith("https://"):
             base = school.rstrip("/")
-        elif "." in school:
+        elif "zportal.nl" in school:
             base = f"https://{school}"
         else:
-            base = f"https://{school}.zportal.nl"
+            subdomain = school.split(".")[0]
+            base = f"https://{subdomain}.zportal.nl"
 
         version = custom_api_version if custom_api_version is not None else self.api_version
         if version and not base.endswith(f"/api/{version}"):
