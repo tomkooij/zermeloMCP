@@ -126,7 +126,8 @@ class ZermeloClient:
                     data=data,
                 )
                 response.raise_for_status()
-                res_json = response.json()
+                # PUT/DELETE may answer with an empty body (e.g. 204 No Content)
+                res_json = response.json() if response.content.strip() else []
             except httpx.HTTPStatusError as e:
                 try:
                     res_json = e.response.json()

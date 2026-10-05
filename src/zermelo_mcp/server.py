@@ -1,8 +1,10 @@
 """Zermelo MCP Server implementation."""
 
+import functools
 import json
 from typing import Any, Dict, List, Optional, Union
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from zermelo_mcp.client import ZermeloClient, ZermeloAPIError
 from zermelo_mcp.models import parse_to_timestamp
 
@@ -11,7 +13,18 @@ app = MCPServer("zermelo-mcp")
 client = ZermeloClient()
 
 
-@app.tool()
+def zermelo_tool(func):
+    """Register a tool, surfacing Zermelo API and input errors to the model as readable tool errors."""
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except (ZermeloAPIError, ValueError) as e:
+            raise ToolError(str(e)) from e
+    return app.tool()(wrapper)
+
+
+@zermelo_tool
 async def get_appointments(
     user: str = "~me",
     start: Union[str, int] = "today",
@@ -58,11 +71,11 @@ async def get_appointments(
     return await client.get("appointments", params=params, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def get_users(
     code: Optional[str] = None,
     role: Optional[str] = None,
-    is_active: bool = True,
+    is_active: Optional[bool] = None,
     school_in_school_year: Optional[int] = None,
     fields: Optional[List[str]] = None,
     school: Optional[str] = None,
@@ -70,16 +83,18 @@ async def get_users(
 ) -> List[Dict[str, Any]]:
     """Opvragen en zoeken van gebruikers (leerlingen, docenten, medewerkers) in Zermelo.
 
+    Docenten mogen meestal alleen zichzelf opvragen: gebruik dan code='~me'.
+
     Args:
-        code: Zoeken op specifieke gebruikerscode.
+        code: Zoeken op specifieke gebruikerscode, of '~me' voor de eigen gebruiker.
         role: Filteren op rol ('student', 'employee', enz.).
-        is_active: Alleen actieve gebruikers (standaard: True).
+        is_active: True voor alleen actieve, False voor alleen gearchiveerde gebruikers (standaard: geen filter).
         school_in_school_year: Optioneel schoolInSchoolYear ID.
         fields: Lijst van velden om op te vragen.
         school: Optionele schoolnaam.
         token: Optioneel token.
     """
-    default_fields = ["id", "code", "firstName", "prefix", "lastName", "roles", "archived"]
+    default_fields = ["code", "firstName", "prefix", "lastName", "roles", "archived"]
     params: Dict[str, Any] = {
         "fields": fields or default_fields,
     }
@@ -87,15 +102,15 @@ async def get_users(
         params["code"] = code
     if role:
         params["role"] = role
-    if is_active:
-        params["archived"] = False
+    if is_active is not None:
+        params["archived"] = not is_active
     if school_in_school_year is not None:
         params["schoolInSchoolYear"] = school_in_school_year
 
     return await client.get("users", params=params, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def get_groups(
     extended_name: Optional[str] = None,
     school_in_school_year: Optional[int] = None,
@@ -103,10 +118,10 @@ async def get_groups(
     school: Optional[str] = None,
     token: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Opvragen van klas- en lesgroepen.
+    """Opvragen van klas- en lesgroepen (/groupindepartments).
 
     Args:
-        extended_name: Zoeken op de naam van de groep.
+        extended_name: Zoeken op de volledige naam van de groep.
         school_in_school_year: Optioneel schoolInSchoolYear ID.
         fields: Gewenste velden.
         school: Optionele schoolnaam.
@@ -121,10 +136,10 @@ async def get_groups(
     if school_in_school_year is not None:
         params["schoolInSchoolYear"] = school_in_school_year
 
-    return await client.get("groups", params=params, custom_school=school, custom_token=token)
+    return await client.get("groupindepartments", params=params, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def get_locations(
     name: Optional[str] = None,
     school_in_school_year: Optional[int] = None,
@@ -132,7 +147,7 @@ async def get_locations(
     school: Optional[str] = None,
     token: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Opvragen van lokalen en ruimtes.
+    """Opvragen van lokalen en ruimtes (/locationofbranches).
 
     Args:
         name: Zoeken op lokaalnaam (bijv. '101').
@@ -141,7 +156,7 @@ async def get_locations(
         school: Optionele schoolnaam.
         token: Optioneel token.
     """
-    default_fields = ["id", "name", "building"]
+    default_fields = ["id", "name", "branchOfSchool"]
     params: Dict[str, Any] = {
         "fields": fields or default_fields,
     }
@@ -150,35 +165,35 @@ async def get_locations(
     if school_in_school_year is not None:
         params["schoolInSchoolYear"] = school_in_school_year
 
-    return await client.get("locations", params=params, custom_school=school, custom_token=token)
+    return await client.get("locationofbranches", params=params, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def get_subjects(
     name: Optional[str] = None,
     fields: Optional[List[str]] = None,
     school: Optional[str] = None,
     token: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Opvragen van schoolvakken.
+    """Opvragen van schoolvakken (/subjectselectionsubjects).
 
     Args:
-        name: Vakcode of naam (bijv. 'wisa').
+        name: Vakcode (bijv. 'wisa').
         fields: Gewenste velden.
         school: Optionele schoolnaam.
         token: Optioneel token.
     """
-    default_fields = ["id", "name"]
+    default_fields = ["id", "code", "name"]
     params: Dict[str, Any] = {
         "fields": fields or default_fields,
     }
     if name:
-        params["name"] = name
+        params["code"] = name
 
-    return await client.get("subjects", params=params, custom_school=school, custom_token=token)
+    return await client.get("subjectselectionsubjects", params=params, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def get_announcements(
     user: str = "~me",
     current_only: bool = True,
@@ -195,7 +210,7 @@ async def get_announcements(
         school: Optionele schoolnaam.
         token: Optioneel token.
     """
-    default_fields = ["id", "title", "text", "start", "end", "forStudents", "forEmployees"]
+    default_fields = ["id", "title", "text", "start", "end", "read"]
     params: Dict[str, Any] = {
         "user": user,
         "fields": fields or default_fields,
@@ -206,7 +221,7 @@ async def get_announcements(
     return await client.get("announcements", params=params, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def get_participations(
     appointment_id: Optional[int] = None,
     user: Optional[str] = None,
@@ -235,7 +250,7 @@ async def get_participations(
     return await client.get("appointmentparticipations", params=params, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def get_school_in_school_years(
     school_year: Optional[int] = None,
     fields: Optional[List[str]] = None,
@@ -245,26 +260,26 @@ async def get_school_in_school_years(
     """Opvragen van school-in-schooljaar informatie.
 
     Args:
-        school_year: Filter op specifiek schooljaar ID.
+        school_year: Filter op schooljaar (beginjaar, bijv. 2026).
         fields: Gewenste velden.
         school: Optionele schoolnaam.
         token: Optioneel token.
     """
-    default_fields = ["id", "schoolYear", "school"]
+    default_fields = ["id", "school", "schoolName", "year", "name"]
     params: Dict[str, Any] = {
         "fields": fields or default_fields,
     }
     if school_year is not None:
-        params["schoolYear"] = school_year
+        params["year"] = school_year
 
-    return await client.get("schoolinschoolyears", params=params, custom_school=school, custom_token=token)
+    return await client.get("schoolsinschoolyears", params=params, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def get_partner_me(
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Inzien van de toegangsrechten van de partner / API token (/partners/~me).
 
     Args:
@@ -274,7 +289,7 @@ async def get_partner_me(
     return await client.get("partners/~me", custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def create_appointment(
     start: Union[str, int],
     end: Union[str, int],
@@ -290,7 +305,7 @@ async def create_appointment(
     school_in_school_year: Optional[int] = None,
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Aanmaken van een nieuwe afspraak / roosterles in Zermelo.
 
     Args:
@@ -333,7 +348,7 @@ async def create_appointment(
     return await client.post("appointments", json_data=payload, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def update_appointment(
     appointment_id: int,
     start: Optional[Union[str, int]] = None,
@@ -349,7 +364,7 @@ async def update_appointment(
     change_description: Optional[str] = None,
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Bewerken / aanpassen van een bestaande roosterafspraak.
 
     Args:
@@ -396,12 +411,12 @@ async def update_appointment(
     return await client.put(endpoint, json_data=payload, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def delete_appointment(
     appointment_id: int,
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Verwijderen of annuleren van een afspraak.
 
     Args:
@@ -413,7 +428,7 @@ async def delete_appointment(
     return await client.delete(endpoint, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def create_announcement(
     title: str,
     text: str,
@@ -423,7 +438,7 @@ async def create_announcement(
     for_employees: bool = True,
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Plaatsen van een nieuwe schoolmededeling.
 
     Args:
@@ -450,7 +465,7 @@ async def create_announcement(
     return await client.post("announcements", json_data=payload, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def update_announcement(
     announcement_id: int,
     title: Optional[str] = None,
@@ -461,7 +476,7 @@ async def update_announcement(
     for_employees: Optional[bool] = None,
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Bewerken van een bestaande schoolmededeling.
 
     Args:
@@ -493,12 +508,12 @@ async def update_announcement(
     return await client.put(endpoint, json_data=payload, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def delete_announcement(
     announcement_id: int,
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Verwijderen van een schoolmededeling.
 
     Args:
@@ -510,13 +525,13 @@ async def delete_announcement(
     return await client.delete(endpoint, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def add_participation(
     appointment_id: int,
     user: str,
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Toevoegen van een deelnemer (gebruikerscode) aan een afspraak.
 
     Args:
@@ -532,12 +547,12 @@ async def add_participation(
     return await client.post("appointmentparticipations", json_data=payload, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def remove_participation(
     participation_id: int,
     school: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Verwijderen van een afspraakdeelname.
 
     Args:
@@ -549,7 +564,7 @@ async def remove_participation(
     return await client.delete(endpoint, custom_school=school, custom_token=token)
 
 
-@app.tool()
+@zermelo_tool
 async def exchange_auth_code(
     school: str,
     auth_code: str,

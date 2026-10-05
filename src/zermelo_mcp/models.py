@@ -1,35 +1,45 @@
 """Data models and date/time helpers for Zermelo API."""
 
 from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, date, time, timedelta, timezone
+from datetime import datetime, date, time, timedelta
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
+
+# Zermelo is used by Dutch schools: dates and times without an explicit offset are local school time.
+SCHOOL_TZ = ZoneInfo("Europe/Amsterdam")
+
+
+def _local_midnight(day: date) -> datetime:
+    return datetime.combine(day, time.min).replace(tzinfo=SCHOOL_TZ)
 
 
 def parse_to_timestamp(value: Union[int, float, str, datetime, date]) -> int:
-    """Convert flexible date/time inputs (UNIX timestamp, ISO string, 'YYYY-MM-DD', 'today', 'tomorrow') to UNIX timestamp in seconds."""
+    """Convert flexible date/time inputs (UNIX timestamp, ISO string, 'YYYY-MM-DD', 'today', 'tomorrow') to UNIX timestamp in seconds.
+
+    Dates and times without a UTC offset are interpreted as Dutch local time (Europe/Amsterdam).
+    """
     if isinstance(value, (int, float)):
         return int(value)
     
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
+            value = value.replace(tzinfo=SCHOOL_TZ)
         return int(value.timestamp())
     
     if isinstance(value, date):
-        dt = datetime.combine(value, time.min).replace(tzinfo=timezone.utc)
-        return int(dt.timestamp())
+        return int(_local_midnight(value).timestamp())
     
     if isinstance(value, str):
         val_str = value.strip().lower()
-        now = datetime.now(timezone.utc)
-        today_start = datetime.combine(now.date(), time.min).replace(tzinfo=timezone.utc)
+        now = datetime.now(SCHOOL_TZ)
+        today = now.date()
         
         if val_str == "today":
-            return int(today_start.timestamp())
+            return int(_local_midnight(today).timestamp())
         if val_str == "tomorrow":
-            return int((today_start + timedelta(days=1)).timestamp())
+            return int(_local_midnight(today + timedelta(days=1)).timestamp())
         if val_str == "yesterday":
-            return int((today_start - timedelta(days=1)).timestamp())
+            return int(_local_midnight(today - timedelta(days=1)).timestamp())
         if val_str in ("now", "current"):
             return int(now.timestamp())
         
@@ -48,7 +58,7 @@ def parse_to_timestamp(value: Union[int, float, str, datetime, date]) -> int:
             try:
                 dt = datetime.strptime(val_str, fmt)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=SCHOOL_TZ)
                 return int(dt.timestamp())
             except ValueError:
                 continue

@@ -64,6 +64,25 @@ De Zermelo MCP server kan geconfigureerd worden via de volgende omgevingsvariabe
 
 > 💡 **Flexibele parameters:** U kunt de `school` en `token` ook per tool-call meegeven als optionele argumenten.
 
+> 🕘 **Tijdzone:** Datums en tijden zonder expliciete offset (bijv. `2026-10-06T09:00:00`, `today`) worden geïnterpreteerd als Nederlandse tijd (`Europe/Amsterdam`).
+
+---
+
+## 🧪 Testen
+
+```bash
+uv pip install -e ".[dev]"
+
+# Offline tests (Zermelo API wordt gemockt; ook alle schrijftools)
+uv run pytest -v
+
+# Live smoke tests tegen het echte portaal — uitsluitend lezende tools
+$env:ZERMELO_LIVE=1; $env:ZERMELO_SCHOOL="mijnschool"; $env:ZERMELO_TOKEN="..."   # PowerShell
+uv run pytest -m live -v
+```
+
+Tools waarvoor het token geen rechten heeft (bijv. `get_partner_me` met een docent-token) worden in de live tests als *skipped* gemeld.
+
 ---
 
 ## 💻 Integratie met MCP Clients
