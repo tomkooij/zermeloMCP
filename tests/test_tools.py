@@ -447,3 +447,42 @@ async def test_get_groups_defaults_to_current_school_year(mcp, api):
     p = params_of(route)
     assert p["schoolInSchoolYear"] == "502" and p["departmentOfBranch"] == "605"
     assert "departmentOfBranch" in p["fields"].split(",")
+
+
+@pytest.mark.anyio
+async def test_get_sections_resolves_members(mcp, api):
+    api.get(f"{BASE}/schoolsinschoolyears").respond(json=envelope([{"id": 502, "year": 2026}]))
+    api.get(f"{BASE}/sectionofbranches").respond(json=envelope([
+        {"id": 711, "sectionName": "Sectie gym", "sectionAbbreviation": "lo", "sectionMembers": [1, 99]},
+        {"id": 715, "sectionName": "Sectie nlt", "sectionAbbreviation": "nlt", "sectionMembers": [2]},
+    ]))
+    api.get(f"{BASE}/contracts").respond(json=envelope([
+        {"id": 1, "employee": "fm", "firstName": "Piet", "prefix": None, "lastName": "Pieters"},
+        {"id": 2, "employee": "mol", "firstName": "Klaas", "prefix": None, "lastName": "Bakker"},
+    ]))
+    result = await mcp.call_tool("get_subject_sections", {"name": "LO"})
+    sections = result.structured_content["result"]
+    assert [s["sectionAbbreviation"] for s in sections] == ["lo"]
+    assert sections[0]["sectionMembers"][0]["employee"] == "fm"
+    assert sections[0]["sectionMembers"][1] == {"contract": 99}
+
+
+@pytest.mark.anyio
+async def test_get_sections_without_resolving(mcp, api):
+    api.get(f"{BASE}/sectionofbranches").respond(json=envelope([{"id": 711, "sectionMembers": [1]}]))
+    contracts = api.get(f"{BASE}/contracts").respond(json=envelope([]))
+    result = await mcp.call_tool("get_subject_sections", {"school_in_school_year": 502, "resolve_members": False})
+    assert result.structured_content["result"][0]["sectionMembers"] == [1]
+    assert not contracts.called
+
+
+@pytest.mark.anyio
+async def test_get_subject_sections_name_prefers_exact_abbreviation(mcp, api):
+    api.get(f"{BASE}/sectionofbranches").respond(json=envelope([
+        {"id": 1, "sectionName": "Sectie gym", "sectionAbbreviation": "lo", "sectionMembers": []},
+        {"id": 2, "sectionName": "Sectie technologie", "sectionAbbreviation": "nlt", "sectionMembers": []},
+    ]))
+    by_abbr = await mcp.call_tool("get_subject_sections", {"name": "lo", "school_in_school_year": 502})
+    assert [s["id"] for s in by_abbr.structured_content["result"]] == [1]
+    by_name = await mcp.call_tool("get_subject_sections", {"name": "techno", "school_in_school_year": 502})
+    assert [s["id"] for s in by_name.structured_content["result"]] == [2]

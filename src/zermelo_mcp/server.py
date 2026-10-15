@@ -784,6 +784,56 @@ async def get_departments(
     return await client.get("departmentsofbranches", params=params, custom_school=school, custom_token=token)
 
 
+@zermelo_tool
+async def get_subject_sections(
+    name: Optional[str] = None,
+    resolve_members: bool = True,
+    school_year: Optional[int] = None,
+    school_in_school_year: Optional[int] = None,
+    fields: Optional[List[str]] = None,
+    school: Optional[str] = None,
+    token: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Vaksecties met hun leden (/sectionofbranches), bijv. 'Sectie gym' (lo) of 'Sectie natuur, leven en technologie' (nlt).
+
+    Args:
+        name: Filter (hoofdletterongevoelig): exacte afkorting (bijv. 'lo'); anders deel van de sectienaam.
+        resolve_members: Zet sectionMembers (contract-ID's) om naar collega's met employee-code en naam (standaard: True).
+        school_year: Schooljaar (beginjaar); standaard het huidige schooljaar.
+        school_in_school_year: Roosterproject-ID; overschrijft school_year.
+        fields: Gewenste velden (standaard: id, sectionName, sectionAbbreviation, sectionMembers).
+        school: Optionele schoolnaam.
+        token: Optioneel token.
+    """
+    sisy = await _resolve_school_in_school_year(school_in_school_year, school_year, school, token)
+    params: Dict[str, Any] = {
+        "schoolInSchoolYear": sisy,
+        "fields": fields or ["id", "sectionName", "sectionAbbreviation", "sectionMembers"],
+    }
+    rows = await client.get("sectionofbranches", params=params, custom_school=school, custom_token=token)
+    if name:
+        needle = name.strip().lower()
+        exact = [r for r in rows if needle == str(r.get("sectionAbbreviation") or "").lower()]
+        rows = exact or [r for r in rows if needle in str(r.get("sectionName") or "").lower()]
+    if resolve_members and any(r.get("sectionMembers") for r in rows):
+        contracts = await client.get(
+            "contracts",
+            params={"schoolInSchoolYear": sisy, "fields": ["id", "employee", "firstName", "prefix", "lastName"]},
+            custom_school=school, custom_token=token,
+        )
+        by_id = {c["id"]: c for c in contracts}
+        for r in rows:
+            members = []
+            for cid in r.get("sectionMembers") or []:
+                c = by_id.get(cid)
+                members.append(
+                    {"contract": cid, **{k: c.get(k) for k in ("employee", "firstName", "prefix", "lastName")}}
+                    if c else {"contract": cid}
+                )
+            r["sectionMembers"] = members
+    return rows
+
+
 def _endpoint_doc(name: str) -> str:
     """Build a tool description (supported fields and filters) for a catalogued endpoint."""
     spec = ENDPOINTS[name]
@@ -840,7 +890,7 @@ def _register_endpoint_tool(name: str) -> None:
 _DEDICATED = {
     "appointments", "users", "groupindepartments", "locationofbranches",
     "subjectselectionsubjects", "schoolsinschoolyears", "branchesofschools", "studentsindepartments", "contracts",
-    "departmentsofbranches",
+    "departmentsofbranches", "sectionofbranches",
 }
 for _name in ENDPOINTS:
     if _name not in _DEDICATED:
