@@ -362,3 +362,23 @@ async def test_query_endpoint_generic(mcp, api):
     route = api.get(f"{BASE}/whatever").respond(json=envelope([]))
     await mcp.call_tool("query_endpoint", {"endpoint": "/whatever/", "fields": ["a", "b"]})
     assert params_of(route)["fields"] == "a,b"
+
+
+@pytest.mark.anyio
+async def test_get_appointments_branch_filters_without_user(mcp, api):
+    route = api.get(f"{BASE}/appointments").respond(json=envelope([]))
+    await mcp.call_tool(
+        "get_appointments",
+        {"start": 1792015200, "end": 1792101599, "branch_of_school": 552, "cancelled": False, "modified_since": 0},
+    )
+    p = params_of(route)
+    assert "user" not in p
+    assert p["branchOfSchool"] == "552" and p["cancelled"] == "false" and p["modifiedSince"] == "0"
+
+
+@pytest.mark.anyio
+async def test_get_branches_of_school(mcp, api):
+    route = api.get(f"{BASE}/branchesofschools").respond(json=envelope([{"id": 552}]))
+    await mcp.call_tool("get_branches_of_school", {"school_year": 2026, "branch": "cg"})
+    p = params_of(route)
+    assert p["schoolYear"] == "2026" and p["branch"] == "cg"

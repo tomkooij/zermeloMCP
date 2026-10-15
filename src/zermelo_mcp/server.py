@@ -27,14 +27,18 @@ def zermelo_tool(func):
 
 @zermelo_tool
 async def get_appointments(
-    user: str = "~me",
+    user: Optional[str] = None,
     start: Union[str, int] = "today",
     end: Union[str, int] = "tomorrow",
     valid_only: bool = True,
     school_in_school_year: Optional[int] = None,
+    branch_of_school: Optional[int] = None,
+    locations_of_branch: Optional[int] = None,
+    cancelled: Optional[bool] = None,
     changed: Optional[bool] = None,
     include_hidden: Optional[bool] = None,
     modified_since: Optional[Union[str, int]] = None,
+    filters: Optional[Dict[str, Any]] = None,
     fields: Optional[List[str]] = None,
     school: Optional[str] = None,
     token: Optional[str] = None,
@@ -42,11 +46,12 @@ async def get_appointments(
     """Ophalen van roosterafspraken voor een gebruiker (~me, leerlingcode of docentcode) tussen twee tijdstippen.
 
     Args:
-        user: Gebruikerscode of '~me' (standaard: '~me').
+        user: Gebruikerscode of '~me'. Standaard '~me', tenzij een ander filter (branch_of_school, locations_of_branch of filters) is opgegeven; dan wordt er niet op gebruiker gefilterd.
         start: Begintijd (bijv. 'today', '2026-09-28', '2026-09-28T08:00:00' of UNIX timestamp).
         end: Eindtijd (bijv. 'tomorrow', '2026-09-29', of UNIX timestamp).
         valid_only: Alleen geldige afspraken ophalen (standaard: True).
         school_in_school_year: Optioneel schoolInSchoolYear ID.
+        filters: Overige filters als {veldnaam: waarde}, bijv. {'teachers': 'abc', 'type': 'lesson'}.
         fields: Lijst van gewenste velden (standaard: id, start, end, subjects, teachers, groups, locations, type, remark, valid, cancelled, changeDescription).
         school: Optionele schoolnaam (overschrijft ZERMELO_SCHOOL).
         token: Optioneel token (overschrijft ZERMELO_TOKEN).
@@ -61,12 +66,18 @@ async def get_appointments(
     ]
     query_fields = fields or default_fields
 
-    params: Dict[str, Any] = {
-        "user": user,
-        "start": start_ts,
-        "end": end_ts,
-        "fields": query_fields,
-    }
+    params: Dict[str, Any] = dict(filters or {})
+    params.update({"start": start_ts, "end": end_ts, "fields": query_fields})
+    if user is None and not (branch_of_school or locations_of_branch or filters):
+        user = "~me"
+    if user is not None:
+        params["user"] = user
+    if branch_of_school is not None:
+        params["branchOfSchool"] = branch_of_school
+    if locations_of_branch is not None:
+        params["locationsOfBranch"] = locations_of_branch
+    if cancelled is not None:
+        params["cancelled"] = cancelled
     if valid_only:
         params["valid"] = True
     if school_in_school_year is not None:
@@ -588,6 +599,31 @@ async def exchange_auth_code(
     return await client.exchange_auth_code(school=school, auth_code=auth_code)
 
 
+@zermelo_tool
+async def get_branches_of_school(
+    school_year: Optional[int] = None,
+    branch: Optional[str] = None,
+    fields: Optional[List[str]] = None,
+    school: Optional[str] = None,
+    token: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Opvragen van vestigingen in een schooljaar (/branchesofschools); het id is de branch_of_school voor get_appointments.
+
+    Args:
+        school_year: Schooljaar (beginjaar, bijv. 2026).
+        branch: Vestigingscode (bijv. 'cg').
+        fields: Gewenste velden (standaard: id, schoolInSchoolYear, branch).
+        school: Optionele schoolnaam.
+        token: Optioneel token.
+    """
+    params: Dict[str, Any] = {"fields": fields or ["id", "schoolInSchoolYear", "branch"]}
+    if school_year is not None:
+        params["schoolYear"] = school_year
+    if branch:
+        params["branch"] = branch
+    return await client.get("branchesofschools", params=params, custom_school=school, custom_token=token)
+
+
 def _endpoint_doc(name: str) -> str:
     """Build a tool description (supported fields and filters) for a catalogued endpoint."""
     spec = ENDPOINTS[name]
@@ -643,7 +679,7 @@ def _register_endpoint_tool(name: str) -> None:
 # Endpoints that already have a dedicated, hand-written tool above.
 _DEDICATED = {
     "appointments", "users", "groupindepartments", "locationofbranches",
-    "subjectselectionsubjects", "schoolsinschoolyears",
+    "subjectselectionsubjects", "schoolsinschoolyears", "branchesofschools",
 }
 for _name in ENDPOINTS:
     if _name not in _DEDICATED:
