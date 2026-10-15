@@ -135,28 +135,37 @@ async def get_users(
 @zermelo_tool
 async def get_groups(
     extended_name: Optional[str] = None,
+    school_year: Optional[int] = None,
     school_in_school_year: Optional[int] = None,
+    department_of_branch: Optional[int] = None,
     fields: Optional[List[str]] = None,
     school: Optional[str] = None,
     token: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Opvragen van klas- en lesgroepen (/groupindepartments).
+    """Opvragen van klas- en lesgroepen (/groupindepartments); de naam is bruikbaar in de groups van get_appointments.
+
+    Zonder schooljaar-filter geeft Zermelo de groepen van alle jaren; daarom wordt standaard het huidige schooljaar gebruikt.
 
     Args:
         extended_name: Zoeken op de volledige naam van de groep.
-        school_in_school_year: Optioneel schoolInSchoolYear ID.
-        fields: Gewenste velden.
+        school_year: Schooljaar (beginjaar); standaard het huidige schooljaar.
+        school_in_school_year: Roosterproject-ID; overschrijft school_year.
+        department_of_branch: Alleen groepen van deze afdeling / dit leerjaar (ID, zie get_departments).
+        fields: Gewenste velden (standaard: id, name, extendedName, departmentOfBranch, schoolInSchoolYear).
         school: Optionele schoolnaam.
         token: Optioneel token.
     """
-    default_fields = ["id", "name", "extendedName", "schoolInSchoolYear"]
+    default_fields = ["id", "name", "extendedName", "departmentOfBranch", "schoolInSchoolYear"]
     params: Dict[str, Any] = {
         "fields": fields or default_fields,
     }
     if extended_name:
         params["extendedName"] = extended_name
-    if school_in_school_year is not None:
-        params["schoolInSchoolYear"] = school_in_school_year
+    if department_of_branch is not None:
+        params["departmentOfBranch"] = department_of_branch
+    params["schoolInSchoolYear"] = await _resolve_school_in_school_year_or_none(
+        school_in_school_year, school_year, school, token
+    )
 
     return await client.get("groupindepartments", params=params, custom_school=school, custom_token=token)
 
