@@ -196,13 +196,9 @@ async def get_locations(
         params["name"] = name
     if branch_of_school is not None:
         params["branchOfSchool"] = branch_of_school
-    try:
-        params["schoolInSchoolYear"] = await _resolve_school_in_school_year(
-            school_in_school_year, school_year, school, token
-        )
-    except ZermeloAPIError:
-        if school_in_school_year is not None or school_year is not None:
-            raise
+    params["schoolInSchoolYear"] = await _resolve_school_in_school_year_or_none(
+        school_in_school_year, school_year, school, token
+    )
 
     return await client.get("locationofbranches", params=params, custom_school=school, custom_token=token)
 
@@ -660,6 +656,18 @@ async def _resolve_school_in_school_year(
     return years[0]["id"]
 
 
+async def _resolve_school_in_school_year_or_none(
+    school_in_school_year: Optional[int], school_year: Optional[int], school: Optional[str], token: Optional[str]
+) -> Optional[int]:
+    """Like _resolve_school_in_school_year, but a failed lookup of the *default* year yields None (no year filter)."""
+    try:
+        return await _resolve_school_in_school_year(school_in_school_year, school_year, school, token)
+    except ZermeloAPIError:
+        if school_in_school_year is not None or school_year is not None:
+            raise
+        return None
+
+
 def _matches_name(row: Dict[str, Any], name: str, keys: tuple) -> bool:
     full = " ".join(str(row.get(k) or "") for k in keys).lower()
     return all(w in full for w in name.lower().split())
@@ -737,6 +745,36 @@ async def get_employee_list(
     return rows
 
 
+@zermelo_tool
+async def get_departments(
+    school_year: Optional[int] = None,
+    school_in_school_year: Optional[int] = None,
+    branch_of_school: Optional[int] = None,
+    fields: Optional[List[str]] = None,
+    school: Optional[str] = None,
+    token: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Opvragen van afdelingen / leerjaren (/departmentsofbranches), bijv. '1h', '4v'.
+
+    Zonder schooljaar-filter geeft Zermelo de afdelingen van alle jaren; daarom wordt standaard het huidige schooljaar gebruikt.
+
+    Args:
+        school_year: Schooljaar (beginjaar); standaard het huidige schooljaar.
+        school_in_school_year: Roosterproject-ID; overschrijft school_year.
+        branch_of_school: Alleen afdelingen van deze vestiging (ID).
+        fields: Gewenste velden (standaard: id, code, branchOfSchool, schoolInSchoolYear).
+        school: Optionele schoolnaam.
+        token: Optioneel token.
+    """
+    params: Dict[str, Any] = {"fields": fields or ["id", "code", "branchOfSchool", "schoolInSchoolYear"]}
+    if branch_of_school is not None:
+        params["branchOfSchool"] = branch_of_school
+    params["schoolInSchoolYear"] = await _resolve_school_in_school_year_or_none(
+        school_in_school_year, school_year, school, token
+    )
+    return await client.get("departmentsofbranches", params=params, custom_school=school, custom_token=token)
+
+
 def _endpoint_doc(name: str) -> str:
     """Build a tool description (supported fields and filters) for a catalogued endpoint."""
     spec = ENDPOINTS[name]
@@ -793,6 +831,7 @@ def _register_endpoint_tool(name: str) -> None:
 _DEDICATED = {
     "appointments", "users", "groupindepartments", "locationofbranches",
     "subjectselectionsubjects", "schoolsinschoolyears", "branchesofschools", "studentsindepartments", "contracts",
+    "departmentsofbranches",
 }
 for _name in ENDPOINTS:
     if _name not in _DEDICATED:

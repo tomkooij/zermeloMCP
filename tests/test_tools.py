@@ -427,3 +427,13 @@ async def test_get_locations_defaults_to_current_school_year(mcp, api):
     p = params_of(route)
     assert p["schoolInSchoolYear"] == "502" and p["branchOfSchool"] == "552"
     assert "courseCapacity" in p["fields"].split(",")
+
+
+@pytest.mark.anyio
+async def test_get_departments_defaults_to_current_school_year(mcp, api):
+    api.get(f"{BASE}/schoolsinschoolyears").respond(json=envelope([{"id": 502, "year": 2026}]))
+    route = api.get(f"{BASE}/departmentsofbranches").respond(json=envelope([{"id": 1, "code": "4v"}]))
+    result = await mcp.call_tool("get_departments", {"branch_of_school": 552})
+    p = params_of(route)
+    assert p["schoolInSchoolYear"] == "502" and p["branchOfSchool"] == "552"
+    assert result.structured_content == {"result": [{"id": 1, "code": "4v"}]}
