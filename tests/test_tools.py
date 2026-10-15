@@ -404,3 +404,16 @@ async def test_get_student_list_filters_group(mcp, api):
     api.get(f"{BASE}/studentsindepartments").respond(json=envelope(rows))
     result = await mcp.call_tool("get_student_list", {"group": "3D", "school_in_school_year": 502})
     assert [r["student"] for r in result.structured_content["result"]] == ["2"]
+
+
+@pytest.mark.anyio
+async def test_get_employee_list_filters_name(mcp, api):
+    api.get(f"{BASE}/schoolsinschoolyears").respond(json=envelope([{"id": 502, "year": 2026}]))
+    rows = [
+        {"employee": "fm", "firstName": "Piet", "prefix": None, "lastName": "Pieters"},
+        {"employee": "mol", "firstName": "Klaas", "prefix": None, "lastName": "Bakker"},
+    ]
+    route = api.get(f"{BASE}/contracts").respond(json=envelope(rows))
+    result = await mcp.call_tool("get_employee_list", {"name": "Pieters", "school_year": 2026})
+    assert params_of(route)["schoolInSchoolYear"] == "502"
+    assert [r["employee"] for r in result.structured_content["result"]] == ["fm"]

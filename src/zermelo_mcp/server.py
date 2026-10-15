@@ -625,6 +625,29 @@ async def get_branches_of_school(
     return await client.get("branchesofschools", params=params, custom_school=school, custom_token=token)
 
 
+async def _resolve_school_in_school_year(
+    school_in_school_year: Optional[int], school_year: Optional[int], school: Optional[str], token: Optional[str]
+) -> int:
+    """Return the given schoolInSchoolYear ID, or look it up from a school year (default: the current one)."""
+    if school_in_school_year is not None:
+        return school_in_school_year
+    if school_year is None:
+        today = datetime.now(SCHOOL_TZ).date()
+        school_year = today.year if today.month >= 8 else today.year - 1
+    years = await client.get(
+        "schoolsinschoolyears", params={"year": school_year, "fields": ["id", "year"]},
+        custom_school=school, custom_token=token,
+    )
+    if not years:
+        raise ValueError(f"Geen roosterproject gevonden voor schooljaar {school_year}.")
+    return years[0]["id"]
+
+
+def _matches_name(row: Dict[str, Any], name: str, keys: tuple) -> bool:
+    full = " ".join(str(row.get(k) or "") for k in keys).lower()
+    return all(w in full for w in name.lower().split())
+
+
 @zermelo_tool
 async def get_student_list(
     name: Optional[str] = None,
@@ -648,17 +671,7 @@ async def get_student_list(
         school: Optionele schoolnaam.
         token: Optioneel token.
     """
-    if school_in_school_year is None:
-        if school_year is None:
-            today = datetime.now(SCHOOL_TZ).date()
-            school_year = today.year if today.month >= 8 else today.year - 1
-        years = await client.get(
-            "schoolsinschoolyears", params={"year": school_year, "fields": ["id", "year"]},
-            custom_school=school, custom_token=token,
-        )
-        if not years:
-            raise ValueError(f"Geen roosterproject gevonden voor schooljaar {school_year}.")
-        school_in_school_year = years[0]["id"]
+    school_in_school_year = await _resolve_school_in_school_year(school_in_school_year, school_year, school, token)
 
     query_fields = fields or [
         "student", "firstName", "prefix", "lastName", "mainGroupName", "mainGroup", "mentorGroup", "departmentOfBranch",
@@ -671,10 +684,39 @@ async def get_student_list(
     if group:
         rows = [r for r in rows if str(r.get("mainGroupName", "")).lower() == group.strip().lower()]
     if name:
-        words = name.lower().split()
-        def full(r: Dict[str, Any]) -> str:
-            return " ".join(str(r.get(k) or "") for k in ("firstName", "prefix", "lastName")).lower()
-        rows = [r for r in rows if all(w in full(r) for w in words)]
+        rows = [r for r in rows if _matches_name(r, name, ("firstName", "prefix", "lastName"))]
+    return rows
+
+
+@zermelo_tool
+async def get_employee_list(
+    name: Optional[str] = None,
+    school_year: Optional[int] = None,
+    school_in_school_year: Optional[int] = None,
+    fields: Optional[List[str]] = None,
+    school: Optional[str] = None,
+    token: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Collega's / medewerkers (/contracts) met naam en vestiging; de 'employee'-code is bruikbaar als user (docent) in get_appointments.
+
+    Args:
+        name: Zoekt (hoofdletterongevoelig) in voornaam, tussenvoegsel en achternaam, bijv. 'piet pieters'.
+        school_year: Schooljaar (beginjaar); standaard het huidige schooljaar.
+        school_in_school_year: Roosterproject-ID; overschrijft school_year.
+        fields: Gewenste velden (standaard: id, employee, firstName, prefix, lastName, schoolInSchoolYear, mainBranchOfSchool, postedBranches).
+        school: Optionele schoolnaam.
+        token: Optioneel token.
+    """
+    school_in_school_year = await _resolve_school_in_school_year(school_in_school_year, school_year, school, token)
+    params: Dict[str, Any] = {
+        "schoolInSchoolYear": school_in_school_year,
+        "fields": fields or [
+            "id", "employee", "firstName", "prefix", "lastName", "schoolInSchoolYear", "mainBranchOfSchool", "postedBranches",
+        ],
+    }
+    rows = await client.get("contracts", params=params, custom_school=school, custom_token=token)
+    if name:
+        rows = [r for r in rows if _matches_name(r, name, ("firstName", "prefix", "lastName"))]
     return rows
 
 
@@ -733,7 +775,7 @@ def _register_endpoint_tool(name: str) -> None:
 # Endpoints that already have a dedicated, hand-written tool above.
 _DEDICATED = {
     "appointments", "users", "groupindepartments", "locationofbranches",
-    "subjectselectionsubjects", "schoolsinschoolyears", "branchesofschools", "studentsindepartments",
+    "subjectselectionsubjects", "schoolsinschoolyears", "branchesofschools", "studentsindepartments", "contracts",
 }
 for _name in ENDPOINTS:
     if _name not in _DEDICATED:
