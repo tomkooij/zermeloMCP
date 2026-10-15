@@ -417,3 +417,13 @@ async def test_get_employee_list_filters_name(mcp, api):
     result = await mcp.call_tool("get_employee_list", {"name": "Pieters", "school_year": 2026})
     assert params_of(route)["schoolInSchoolYear"] == "502"
     assert [r["employee"] for r in result.structured_content["result"]] == ["fm"]
+
+
+@pytest.mark.anyio
+async def test_get_locations_defaults_to_current_school_year(mcp, api):
+    api.get(f"{BASE}/schoolsinschoolyears").respond(json=envelope([{"id": 502, "year": 2026}]))
+    route = api.get(f"{BASE}/locationofbranches").respond(json=envelope([{"id": 1}]))
+    await mcp.call_tool("get_locations", {"branch_of_school": 552})
+    p = params_of(route)
+    assert p["schoolInSchoolYear"] == "502" and p["branchOfSchool"] == "552"
+    assert "courseCapacity" in p["fields"].split(",")

@@ -164,28 +164,45 @@ async def get_groups(
 @zermelo_tool
 async def get_locations(
     name: Optional[str] = None,
+    school_year: Optional[int] = None,
     school_in_school_year: Optional[int] = None,
+    branch_of_school: Optional[int] = None,
     fields: Optional[List[str]] = None,
     school: Optional[str] = None,
     token: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Opvragen van lokalen en ruimtes (/locationofbranches).
+    """Opvragen van lokalen en ruimtes (/locationofbranches); het id is bruikbaar als locations_of_branch in get_appointments.
+
+    Zonder schooljaar-filter geeft Zermelo de lokalen van alle jaren; daarom wordt standaard het huidige schooljaar gebruikt
+    (lukt het opzoeken daarvan niet, dan wordt er niet op schooljaar gefilterd).
 
     Args:
         name: Zoeken op lokaalnaam (bijv. '101').
-        school_in_school_year: Optioneel schoolInSchoolYear ID.
-        fields: Gewenste velden.
+        school_year: Schooljaar (beginjaar); standaard het huidige schooljaar.
+        school_in_school_year: Roosterproject-ID; overschrijft school_year.
+        branch_of_school: Alleen lokalen van deze vestiging (ID).
+        fields: Gewenste velden (standaard: id, name, branchOfSchool, courseCapacity, parentteachernightCapacity, supportsConcurrentAppointments, secondaryBranches).
         school: Optionele schoolnaam.
         token: Optioneel token.
     """
-    default_fields = ["id", "name", "branchOfSchool"]
+    default_fields = [
+        "id", "name", "branchOfSchool", "courseCapacity", "parentteachernightCapacity",
+        "supportsConcurrentAppointments", "secondaryBranches",
+    ]
     params: Dict[str, Any] = {
         "fields": fields or default_fields,
     }
     if name:
         params["name"] = name
-    if school_in_school_year is not None:
-        params["schoolInSchoolYear"] = school_in_school_year
+    if branch_of_school is not None:
+        params["branchOfSchool"] = branch_of_school
+    try:
+        params["schoolInSchoolYear"] = await _resolve_school_in_school_year(
+            school_in_school_year, school_year, school, token
+        )
+    except ZermeloAPIError:
+        if school_in_school_year is not None or school_year is not None:
+            raise
 
     return await client.get("locationofbranches", params=params, custom_school=school, custom_token=token)
 
