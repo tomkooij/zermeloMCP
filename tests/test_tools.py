@@ -382,3 +382,25 @@ async def test_get_branches_of_school(mcp, api):
     await mcp.call_tool("get_branches_of_school", {"school_year": 2026, "branch": "cg"})
     p = params_of(route)
     assert p["schoolYear"] == "2026" and p["branch"] == "cg"
+
+
+@pytest.mark.anyio
+async def test_get_student_list_resolves_year_and_filters_name(mcp, api):
+    years = api.get(f"{BASE}/schoolsinschoolyears").respond(json=envelope([{"id": 502, "year": 2026}]))
+    rows = [
+        {"student": "3943", "firstName": "Jan", "prefix": "", "lastName": "Jansen", "mainGroupName": "4a"},
+        {"student": "4077", "firstName": "Jan", "prefix": "", "lastName": "Visser", "mainGroupName": "3d"},
+    ]
+    sid = api.get(f"{BASE}/studentsindepartments").respond(json=envelope(rows))
+    result = await mcp.call_tool("get_student_list", {"name": "jan jansen", "school_year": 2026})
+    assert params_of(years)["year"] == "2026"
+    assert params_of(sid)["schoolInSchoolYear"] == "502"
+    assert [r["student"] for r in result.structured_content["result"]] == ["3943"]
+
+
+@pytest.mark.anyio
+async def test_get_student_list_filters_group(mcp, api):
+    rows = [{"student": "1", "mainGroupName": "4a"}, {"student": "2", "mainGroupName": "3d"}]
+    api.get(f"{BASE}/studentsindepartments").respond(json=envelope(rows))
+    result = await mcp.call_tool("get_student_list", {"group": "3D", "school_in_school_year": 502})
+    assert [r["student"] for r in result.structured_content["result"]] == ["2"]

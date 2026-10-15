@@ -2,12 +2,13 @@
 
 import functools
 import json
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from zermelo_mcp.client import ZermeloClient, ZermeloAPIError
 from zermelo_mcp.endpoints import ENDPOINTS
-from zermelo_mcp.models import parse_to_timestamp
+from zermelo_mcp.models import SCHOOL_TZ, parse_to_timestamp
 
 # Create MCPServer instance
 app = MCPServer("zermelo-mcp")
@@ -624,6 +625,59 @@ async def get_branches_of_school(
     return await client.get("branchesofschools", params=params, custom_school=school, custom_token=token)
 
 
+@zermelo_tool
+async def get_student_list(
+    name: Optional[str] = None,
+    group: Optional[str] = None,
+    school_year: Optional[int] = None,
+    school_in_school_year: Optional[int] = None,
+    branch_of_school: Optional[int] = None,
+    fields: Optional[List[str]] = None,
+    school: Optional[str] = None,
+    token: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Leerlinglijst (/studentsindepartments) met naam, hoofdgroep, mentorgroep en afdeling; de 'student'-code is bruikbaar als user in get_appointments.
+
+    Args:
+        name: Zoekt (hoofdletterongevoelig) in voornaam, tussenvoegsel en achternaam, bijv. 'jan jansen'.
+        group: Alleen leerlingen in deze hoofdgroep (bijv. '4a').
+        school_year: Schooljaar (beginjaar); standaard het huidige schooljaar.
+        school_in_school_year: Roosterproject-ID; overschrijft school_year.
+        branch_of_school: Optioneel vestiging-ID (zie get_branches_of_school).
+        fields: Gewenste velden (standaard: student, firstName, prefix, lastName, mainGroupName, mainGroup, mentorGroup, departmentOfBranch).
+        school: Optionele schoolnaam.
+        token: Optioneel token.
+    """
+    if school_in_school_year is None:
+        if school_year is None:
+            today = datetime.now(SCHOOL_TZ).date()
+            school_year = today.year if today.month >= 8 else today.year - 1
+        years = await client.get(
+            "schoolsinschoolyears", params={"year": school_year, "fields": ["id", "year"]},
+            custom_school=school, custom_token=token,
+        )
+        if not years:
+            raise ValueError(f"Geen roosterproject gevonden voor schooljaar {school_year}.")
+        school_in_school_year = years[0]["id"]
+
+    query_fields = fields or [
+        "student", "firstName", "prefix", "lastName", "mainGroupName", "mainGroup", "mentorGroup", "departmentOfBranch",
+    ]
+    params: Dict[str, Any] = {"schoolInSchoolYear": school_in_school_year, "fields": query_fields}
+    if branch_of_school is not None:
+        params["branchOfSchool"] = branch_of_school
+    rows = await client.get("studentsindepartments", params=params, custom_school=school, custom_token=token)
+
+    if group:
+        rows = [r for r in rows if str(r.get("mainGroupName", "")).lower() == group.strip().lower()]
+    if name:
+        words = name.lower().split()
+        def full(r: Dict[str, Any]) -> str:
+            return " ".join(str(r.get(k) or "") for k in ("firstName", "prefix", "lastName")).lower()
+        rows = [r for r in rows if all(w in full(r) for w in words)]
+    return rows
+
+
 def _endpoint_doc(name: str) -> str:
     """Build a tool description (supported fields and filters) for a catalogued endpoint."""
     spec = ENDPOINTS[name]
@@ -679,7 +733,7 @@ def _register_endpoint_tool(name: str) -> None:
 # Endpoints that already have a dedicated, hand-written tool above.
 _DEDICATED = {
     "appointments", "users", "groupindepartments", "locationofbranches",
-    "subjectselectionsubjects", "schoolsinschoolyears", "branchesofschools",
+    "subjectselectionsubjects", "schoolsinschoolyears", "branchesofschools", "studentsindepartments",
 }
 for _name in ENDPOINTS:
     if _name not in _DEDICATED:
