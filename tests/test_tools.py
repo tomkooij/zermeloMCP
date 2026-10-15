@@ -338,3 +338,27 @@ async def test_daily_schedule_prompt(mcp):
     result = await mcp.get_prompt("daily_schedule", {"user": "abc", "date": "2026-10-06"})
     text = result.messages[0].content.text
     assert "'abc'" in text and "'2026-10-06'" in text and "get_appointments" in text
+
+
+@pytest.mark.anyio
+async def test_generated_endpoint_tools_registered():
+    names = {t.name for t in await app.list_tools()}
+    for name in ("get_holidays", "get_liveschedule", "get_courses", "get_students", "get_timeslotnames", "list_endpoints", "query_endpoint"):
+        assert name in names
+
+
+@pytest.mark.anyio
+async def test_generated_tool_sends_defaults_and_filters(mcp, api):
+    route = api.get(f"{BASE}/courses").respond(json=envelope([{"id": 1}]))
+    await mcp.call_tool("get_courses", {"filters": {"student": "123"}, "school_in_school_year": [1, 2]})
+    p = params_of(route)
+    assert p["student"] == "123"
+    assert p["schoolInSchoolYear"] == "1,2"
+    assert "subjectCode" in p["fields"].split(",")
+
+
+@pytest.mark.anyio
+async def test_query_endpoint_generic(mcp, api):
+    route = api.get(f"{BASE}/whatever").respond(json=envelope([]))
+    await mcp.call_tool("query_endpoint", {"endpoint": "/whatever/", "fields": ["a", "b"]})
+    assert params_of(route)["fields"] == "a,b"

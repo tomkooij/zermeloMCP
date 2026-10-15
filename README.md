@@ -18,6 +18,11 @@ Met deze MCP server kunnen AI-assistenten (zoals Claude Desktop, Gemini, Cursor,
 * **`get_participations`**: Afspraakdeelnames bekijken.
 * **`get_school_in_school_years`**: Schooljaren en koppelings-IDs ophalen.
 * **`get_partner_me`**: Partner-rechten en toegangsrechten inzien (`/partners/~me`).
+* **Alle overige endpoints uit https://docs.zportal.nl/docs/** hebben een eigen `get_<endpoint>`-tool, bijv. `get_liveschedule`, `get_courses`, `get_students`, `get_employees`, `get_holidays`, `get_timeslotnames`, `get_talkrequests`, `get_contracts`, … Elke tool accepteert `filters` (`{veldnaam: waarde}`), `fields` (standaard alle ondersteunde velden) en `school_in_school_year`; de beschrijving bevat de ondersteunde velden en filters.
+* **`list_endpoints`**: overzicht van alle gedocumenteerde endpoints, velden en filters.
+* **`query_endpoint`**: generieke GET op elk endpoint (ook niet-gedocumenteerde).
+
+De catalogus staat in `src/zermelo_mcp/endpoints.py` (alleen *ondersteunde* velden/filters volgens de docs). Let op: volgens de docs hebben partner-tokens alleen leesrechten.
 
 ### ✍️ Schrijven (Write Operations)
 * **`create_appointment`**: Nieuwe afspraak/les aanmaken in het rooster.

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from zermelo_mcp.client import ZermeloClient, ZermeloAPIError
+from zermelo_mcp.endpoints import ENDPOINTS
 from zermelo_mcp.models import parse_to_timestamp
 
 # Create MCPServer instance
@@ -31,6 +32,9 @@ async def get_appointments(
     end: Union[str, int] = "tomorrow",
     valid_only: bool = True,
     school_in_school_year: Optional[int] = None,
+    changed: Optional[bool] = None,
+    include_hidden: Optional[bool] = None,
+    modified_since: Optional[Union[str, int]] = None,
     fields: Optional[List[str]] = None,
     school: Optional[str] = None,
     token: Optional[str] = None,
@@ -67,6 +71,12 @@ async def get_appointments(
         params["valid"] = True
     if school_in_school_year is not None:
         params["schoolInSchoolYear"] = school_in_school_year
+    if changed is not None:
+        params["changed"] = changed
+    if include_hidden is not None:
+        params["includeHidden"] = include_hidden
+    if modified_since is not None:
+        params["modifiedSince"] = parse_to_timestamp(modified_since)
 
     return await client.get("appointments", params=params, custom_school=school, custom_token=token)
 
@@ -576,6 +586,107 @@ async def exchange_auth_code(
         auth_code: De 12-cijferige koppelcode uit het Zermelo Portal.
     """
     return await client.exchange_auth_code(school=school, auth_code=auth_code)
+
+
+def _endpoint_doc(name: str) -> str:
+    """Build a tool description (supported fields and filters) for a catalogued endpoint."""
+    spec = ENDPOINTS[name]
+    fields = ", ".join(f"{n} ({t}{', filterbaar' if f else ''})" for n, _, t, f in spec["fields"])
+    filters = "; ".join(f"{n}: {d} ({t})" for n, d, t in spec["filters"]) or "geen"
+    return (
+        f"Opvragen van /{name} ({spec['title']}) uit de Zermelo API.\n\n"
+        f"Ondersteunde velden: {fields}.\n"
+        f"Extra filters: {filters}.\n\n"
+        "Args:\n"
+        "    filters: Filters als {veldnaam: waarde}; elk filterbaar veld of extra filter hierboven is toegestaan.\n"
+        "    fields: Gewenste velden (standaard: alle ondersteunde velden).\n"
+        "    school_in_school_year: Roosterproject-ID's (komma-gescheiden of lijst); verplicht voor partner-tokens.\n"
+        "    school: Optionele schoolnaam.\n"
+        "    token: Optioneel token."
+    )
+
+
+async def _query(
+    endpoint: str,
+    filters: Optional[Dict[str, Any]],
+    fields: Optional[List[str]],
+    school_in_school_year: Optional[Union[int, str, List[int]]],
+    school: Optional[str],
+    token: Optional[str],
+) -> Any:
+    spec = ENDPOINTS.get(endpoint)
+    params: Dict[str, Any] = dict(filters or {})
+    if fields:
+        params["fields"] = fields
+    elif spec:
+        params["fields"] = [n for n, _, _, _ in spec["fields"]]
+    if school_in_school_year is not None:
+        params["schoolInSchoolYear"] = school_in_school_year
+    return await client.get(endpoint, params=params, custom_school=school, custom_token=token)
+
+
+def _register_endpoint_tool(name: str) -> None:
+    async def tool(
+        filters: Optional[Dict[str, Any]] = None,
+        fields: Optional[List[str]] = None,
+        school_in_school_year: Optional[Union[int, str, List[int]]] = None,
+        school: Optional[str] = None,
+        token: Optional[str] = None,
+    ) -> Any:
+        return await _query(name, filters, fields, school_in_school_year, school, token)
+
+    tool.__name__ = f"get_{name}"
+    tool.__doc__ = _endpoint_doc(name)
+    zermelo_tool(tool)
+
+
+# Endpoints that already have a dedicated, hand-written tool above.
+_DEDICATED = {
+    "appointments", "users", "groupindepartments", "locationofbranches",
+    "subjectselectionsubjects", "schoolsinschoolyears",
+}
+for _name in ENDPOINTS:
+    if _name not in _DEDICATED:
+        _register_endpoint_tool(_name)
+
+
+@zermelo_tool
+async def list_endpoints() -> List[Dict[str, Any]]:
+    """Overzicht van alle in de Zermelo API gedocumenteerde endpoints met ondersteunde velden en filters."""
+    return [
+        {
+            "endpoint": name,
+            "title": spec["title"],
+            "fields": [{"name": n, "title": t, "type": ty, "filterable": f} for n, t, ty, f in spec["fields"]],
+            "extra_filters": [{"name": n, "description": d, "type": t} for n, d, t in spec["filters"]],
+        }
+        for name, spec in ENDPOINTS.items()
+    ]
+
+
+@zermelo_tool
+async def query_endpoint(
+    endpoint: str,
+    filters: Optional[Dict[str, Any]] = None,
+    fields: Optional[List[str]] = None,
+    school_in_school_year: Optional[Union[int, str, List[int]]] = None,
+    school: Optional[str] = None,
+    token: Optional[str] = None,
+) -> Any:
+    """Generieke GET op elk Zermelo API endpoint (zie list_endpoints), ook endpoints zonder eigen tool.
+
+    Args:
+        endpoint: Endpointnaam zonder slash (bijv. 'liveschedule', 'holidays', 'courses').
+        filters: Filters als {veldnaam: waarde}.
+        fields: Gewenste velden (standaard: alle ondersteunde velden indien het endpoint bekend is).
+        school_in_school_year: Roosterproject-ID's; verplicht voor partner-tokens.
+        school: Optionele schoolnaam.
+        token: Optioneel token.
+    """
+    endpoint = endpoint.strip().strip("/")
+    if not endpoint:
+        raise ValueError("endpoint is verplicht")
+    return await _query(endpoint, filters, fields, school_in_school_year, school, token)
 
 
 @app.resource("zermelo://config")
