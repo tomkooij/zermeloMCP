@@ -1,3 +1,5 @@
+LET OP: Dit is AI junk. Werkt voor mij prima. Maar wellicht helemaal niet voor anderen.
+
 # Zermelo MCP Server
 
 Een krachtige **Model Context Protocol (MCP) server** geschreven in Python om data uit de **Zermelo API** (roostersoftware voor het onderwijs) te lezen en schrijven.
